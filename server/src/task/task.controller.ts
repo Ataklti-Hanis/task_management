@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   NotFoundException,
@@ -9,12 +10,15 @@ import {
   Patch,
   Post,
   Put,
+  Query,
+  Req,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { CreateTaskDto } from './dto/create-task-dto';
 import { Task } from './create-task-entity';
 import { UpdateTaskDto } from './dto/update-task-dto';
 import { DeleteResult, UpdateResult } from 'typeorm';
+import { Pagination } from 'nestjs-typeorm-paginate';
 
 @Controller('task')
 export class TaskController {
@@ -26,8 +30,12 @@ export class TaskController {
   }
 
   @Get()
-  findAll() {
-    return this.taskService.findAll();
+  findAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit = 10,
+  ): Promise<Pagination<Task>> {
+    limit = limit > 100 ? 100 : limit;
+    return this.taskService.paginate({ page, limit });
   }
   @Get(':id')
   async findOne(@Param('id', new ParseIntPipe()) id: number): Promise<Task> {

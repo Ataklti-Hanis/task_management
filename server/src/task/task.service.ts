@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -11,6 +12,12 @@ import { CreateTaskDto, TaskStatus } from './dto/create-task-dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UpdateTaskDto } from './dto/update-task-dto';
 import { threadId } from 'worker_threads';
+import {
+  IPaginationOptions,
+  paginate,
+  Pagination,
+} from 'nestjs-typeorm-paginate';
+import { GetTasksFilterDto } from './dto/filter-task-dto';
 
 @Injectable()
 export class TaskService {
@@ -24,8 +31,14 @@ export class TaskService {
     task.title = taskDto.title;
     task.description = taskDto.description;
     task.status = taskDto.status;
-    task.dueDate = taskDto.dueDate;
+    // task.dueDate = taskDto.dueDate;
 
+    // if (taskDto.status === TaskStatus.DONE && taskDto.dueDate) {
+    //   task.dueDate = new Date(taskDto.dueDate);
+    // } else {
+    //   task.dueDate = undefined;
+    // }
+    task.dueDate = taskDto.status === TaskStatus.DONE ? new Date() : null;
     return this.taskRepository.save(task);
   }
   findAll() {
@@ -75,16 +88,47 @@ export class TaskService {
     return taskToDelete;
   }
 
-  async updateStatus(id: number, status: string): Promise<UpdateResult> {
+  async updateStatus(
+    id: number,
+    status: TaskStatus,
+    dueDate?: string,
+  ): Promise<UpdateResult> {
     if (!Object.values(TaskStatus).includes(status as TaskStatus)) {
       throw new HttpException('Invalid Status', HttpStatus.BAD_REQUEST);
     }
-    const taskToUpdate = await this.taskRepository.update(id, {
-      status: status as TaskStatus,
-    });
+    const updateData: Partial<Task> = {
+      status,
+      dueDate: status === TaskStatus.DONE ? new Date() : null,
+    };
+
+    if (status === TaskStatus.DONE) {
+      updateData.dueDate = new Date(); // system sets dueDate automatically
+    } else {
+      updateData.dueDate = null; // clear dueDate if not DONE
+    }
+    const taskToUpdate = await this.taskRepository.update(id, updateData);
     if (taskToUpdate.affected === 0) {
       throw new NotFoundException('Task not found');
     }
     return taskToUpdate;
+  }
+
+  async paginate(options: IPaginationOptions): Promise<Pagination<Task>> {
+    const queryBuilder = this.taskRepository.createQueryBuilder('c');
+    queryBuilder
+      .orderBy(
+        `
+      CASE c.status
+        WHEN 'DONE' THEN 1
+        WHEN 'TODO' THEN 2
+        WHEN 'IN_PROGRESS' THEN 3
+        WHEN 'CANCELLED' THEN 4
+        ELSE 5
+      END
+    `,
+        'ASC',
+      )
+      .addOrderBy('c.dueDate', 'ASC');
+    return paginate<Task>(queryBuilder, options);
   }
 }
